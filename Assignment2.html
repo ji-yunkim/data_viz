@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<head>
+    <meta charset="utf-8">
+    <title>과제 2</title>
+</head>
+<body>
+<h1>2020-21659 김지연</h1>
+<h2>KBO Rankings</h2>
+
+<!-- Year select를 생성한다 -->
+<div>
+    <select id="yearOption" onchange="putTable();"></select>
+    <select id="criteria" onchange="putLine();">
+        <option value="Rank">Rank</option>
+        <option value="WR">WR</option>
+        <option value="DG">DG</option>
+    </select>
+</div>
+
+<!-- 세 가지 g를 담을 svg를 생성한다 -->
+<div>
+    <svg id = "tableSVG" height = "500" width = "420"></svg>
+    <svg id = "lineSVG" height = "500" width = "600"></svg>
+    <svg id = "barSVG" height = "500" width = "480"></svg>
+</div>
+
+<!-- 스크립트 시작 -->
+<script src="https://d3js.org/d3.v6.min.js"></script>
+<script>
+
+    // 좌표 생성해주는 함수
+    function translate(x, y) {
+        return "translate(" + x + "," + y + ")";
+    }
+        
+// --------------------- TABLE ------------------------------------------
+    let table = d3.select("#tableSVG"); // html의 svg를 선택한다.
+    let tableChart = table.append("g") // 첫 차트 자리를 찍는다
+        .attr("transform", translate(0,30));
+    let x_scale = [10,60,145,185,225,265,340,410];
+    let table_height = 30;
+    
+    function row_position (total,d) {
+                    return (450/total) * d;
+                }
+        
+    let dataFormat = {
+        "header": ["rank", "team", "W", "D", "L", "win_rate", "diff_game"],
+        "data": null,
+        "team_name": [],
+        "years": [],
+        "year_index": 0,
+        "selectedRows": [],
+        "selectedRowEntries": []
+    };
+    
+    let color = d3.scaleOrdinal()
+    .domain(dataFormat.team_name)
+    .range([
+       "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf","#383867", "#584c77", "#33431e", "#a36629", "#92462f", "#b63e36", "#b74a70", "#946943"
+    ]);
+
+    d3.json("data.json").then(function(data){
+        dataFormat.data = data; // dataFormat에 json data를 담는다
+        data.forEach( d => (dataFormat.years.push(d.year))); // data의 각 줄에 대해 연도를 dataFormat.years에 넣는다
+        dataFormat.year_index = dataFormat.years.length > 0 ? 0 : -1; // dataFormat.years에 뭔가 들어가면 0, 아니면 -1.
+        dataFormat.years.sort(); // dataFormat.years를 차순정렬한다.
+
+        let control_year = d3.select("#yearOption") // id yearOption를 선택한다.
+            .selectAll("option") // 모든 option을 선택한다.
+            .data(dataFormat.years); // data 값에 dataFormat.years를 넣는다
+
+        control_year.enter() // control_year에 option을 넣는다.
+            .append("option")
+            .attr("value", d => d)
+            .text( d => d);
+
+        control_year.exit().remove(); // control_year에서 더이상 쓰이지 않는 요소를 제거한다.
+
+        // dataFormat의 각 팀을 랭크 순서대로 theTeams 어레이에 넣는다.
+        let theTeams = [];
+        dataFormat.data.forEach(function(d) {
+            d.rankings.forEach(function(rank) {
+                theTeams.push(rank.team);
+            });
+        });
+        dataFormat.team_name = Array.from(new Set(theTeams)).sort(); // 랭크대로 팀 이름을 정렬한다.
+        
+        putTable();
+        putLine();
+        putBar();
+    });
+
+    function putTable() {
+        let yearOption = document.getElementById("yearOption").value; // html에서 yearOption id를 가져온다
+        let criteria = document.getElementById("criteria").value;
+
+        d3.select("#yearOption")
+            .selectAll("option")
+            .attr("selected", null)
+            .filter( d => (d === yearOption))
+            .attr("selected", "selected");
+        putdataFormat(yearOption); // yearOption에 맞게 table 업데이트
+        putLineData(yearOption, criteria);
+        putBarData(yearOption);
+    }
+
+    let tbody_g = tableChart.append("g") // tbody_g 추가
+            .attr("transform", translate(0, table_height))
+            .attr("id", "tbody_g");
+
+    let thead_g = tableChart.append("g") // thead_g 추가
+        .attr("id", "thead_g")
+        .attr("transform", translate(0, 0));
+
+    thead_g.selectAll("text") // thead_g 
+        .data(dataFormat.header)
+        .enter()
+        .append("text")
+        .style("font-weight", 700)
+        .attr("x", function(d, i) {return x_scale[i];})
+        .attr("y", row_position(0))
+        .text(d => d);
+
+    function put(team) { // put에 필요한 기능
+        let selected_year = document.getElementById("yearOption").value; // yearOption id에 해당하는 부분 put
+        putdataFormat(selected_year);
+        putBarData(selected_year);
+        
+        let selected_line = document.getElementById("criteria").value;
+        putLineData(selected_year, selected_line);
+
+        tbody_g
+            .selectAll("text")
+            .attr("font-weight", null);
+
+        tbody_g
+            .selectAll("." + team)
+            .selectAll("text")
+            .attr("font-weight", 900);
+            
+        d3.select("#lineID")
+            .selectAll("path")
+            .attr("stroke-width", 1.5);
+
+        d3.select("#lineID")
+            .selectAll("." + team)
+            .attr("stroke-width", 5);
+            
+        d3.select("#barID")
+            .selectAll("rect")
+            .attr("stroke",null);
+
+        d3.select("#barID")
+            .selectAll("." + team)
+            .attr('stroke', "black")
+            .attr('stroke-width', "3");
+    }
+
+    function tableTransition(dataFormat){
+        tbody_g.selectAll("#table_rows")
+            .data(dataFormat.selectedRows, d => d[1])
+            .transition()
+            .delay(1200)
+            .duration(1200)
+            .style("opacity", 1);
+
+        tbody_g.selectAll("#table_rows")
+            .data(dataFormat.selectedRows, d => d[1])
+            .on("mouseenter", function(event, d) {put(d[1]);})
+            .on("mouseleave", function() {put("none");});
+    }
+    
+    function putdataFormat(year) {
+        if (dataFormat.data === null) {return;}
+
+        let rankings = null;
+        dataFormat.data.forEach(function(d) {
+            if (d.year !== year) {return;}
+            rankings = d.rankings;
+        });
+
+        if (rankings === null) {return;}
+
+        dataFormat.selectedRows = [];
+        for (let rank in rankings) {
+            let table_entry = [];
+            dataFormat.header.forEach(function(d) {
+                if (d === "rank") {
+                    table_entry.push(+rank + 1);
+                } else {
+                    table_entry.push(rankings[rank][d]);
+                }
+            });
+            dataFormat.selectedRows.push(table_entry);
+        }
+
+        let table_rows = tbody_g.selectAll("#table_rows") 
+            .data(dataFormat.selectedRows, d => d[1]);
+
+        table_rows.exit().remove();
+        let team_total = dataFormat.selectedRows.length;
+        table_rows.enter()
+            .append("g")
+            .attr("id", "table_rows")
+            .attr("transform", d => (translate(0, row_position(team_total,d[0]-1))))
+            .attr("class", d => d[1])
+            .style("fill", d => color(d[1]))
+            .style("opacity", 0)
+            .selectAll("text")
+            .data( d => d )
+            .enter()
+            .append("text")
+            .attr("x", function(d, i) {return x_scale[i];})
+            .text( d => d);
+
+        table_rows.selectAll("text")
+            .data( d => d)
+            .text( d => d);
+
+        table_rows.transition()
+            .duration(1200)
+            .attr("transform", function(d){return translate(0, row_position(team_total,d[0]-1));});
+        tableTransition(dataFormat);
+    }
+    
+    //----------------------------LINE----------------------------------------
+    
+        let line = d3.select("#lineSVG");
+        let lineChart = line.append("g")
+            .attr("id", "lineID")
+            .attr("transform", translate(40,40));
+        
+        let LYAxis = d3.select("#lineID").append("g")
+            .attr("class", "line-axis--y");
+
+        let LXAxis = d3.select("#lineID").append("g")
+            .attr("class", "line-axis--x")
+            .attr("transform", translate(0, 420));
+    
+        let LXScale = d3.scaleBand()
+            .range([0, 530]);
+        let LYScale = d3.scaleLinear()
+            .range([450, 0]);        
+                
+        function putLine() {
+            let selected_year = document.getElementById("yearOption").value;
+            let selected_line = document.getElementById("criteria").value;
+            putLineData(selected_year, selected_line);
+        }
+    
+        function lineTransition(show_teams) {
+            d3.select("#lineID").selectAll("path")
+                .data(show_teams, function(team) {return team;})
+                .transition()
+                .delay(1200)
+                .duration(1200)
+                .style("opacity", 1);
+        }
+        
+        function putLineData(selected_year, if_dg) {
+            if (dataFormat.data == null) {return;}
+            onDisplay = [];
+            team_datas = {};
+            
+            let selectedTeams = [];
+                dataFormat.data.forEach(function(d) {
+                if (d.year !== selected_year)
+                    return;
+                d.rankings.forEach(function(rank) {selectedTeams.push(rank.team);});
+            });
+            
+            selectedTeams.forEach(function(d){team_datas[d] = [];});
+            dataFormat.data.forEach(function(d) {
+                d.rankings.forEach(function(rank) {
+                    if (selectedTeams.includes(rank.team)) {
+                       if (if_dg === "DG") {
+                                onDisplay.push(+rank.diff_game);
+                                team_datas[rank.team].push([d.year, +rank.diff_game])
+                                LYScale = d3.scaleLinear().range([0, 420]);
+                            } else if (if_dg === "WR") {
+                                onDisplay.push(+rank.win_rate);
+                                team_datas[rank.team].push([d.year, +rank.win_rate])
+                                LYScale = d3.scaleLinear().range([420, 0]);
+                            } else if (if_dg === "Rank"){
+                                onDisplay.push(+rank.rank);
+                                team_datas[rank.team].push([d.year, +rank.rank]);
+                                LYScale = d3.scaleLinear().range([0, 420]);
+                            }
+                    }
+                });
+            });
+        
+            LXScale.domain(dataFormat.years);
+            LYScale.domain([d3.min(onDisplay), d3.max(onDisplay)]);
+    
+            let LAxisX = d3.axisBottom(LXScale);
+            LAxisX.tickValues([dataFormat.years[0], dataFormat.years[dataFormat.years.length-1]]);
+    
+            LXAxis.transition().call(LAxisX);
+            LYAxis.transition().call(d3.axisLeft(LYScale));
+    
+            linePlotting(selectedTeams, dataFormat);
+            lineTransition(selectedTeams);
+        }  
+        
+        function linePlotting(selectedTeams, dataFormat){
+
+            let line = d3.line()
+                .x(d => LXScale(d[0]))
+                .y(d => LYScale(d[1]));
+    
+            let linePath = d3.select("#lineID")
+                .selectAll("#line_path")
+                .data(selectedTeams,  d => d);
+
+            linePath.exit().remove();
+            linePath.enter()
+                .append("path")
+                .attr("id", "line_path")
+                .attr("fill", "none")
+                .attr("class",  d => d)
+                .attr("stroke", d => (color(d)))
+                .attr("stroke-width", 1.5)
+                .attr("d", d => line(team_datas[d]))
+                .style("opacity", 0)
+                .on("mouseenter", function(event, d) {put(d);})
+                .on("mouseleave", function() {return put("none");}); 
+                
+            linePath
+                .attr("stroke", d => color(d))
+                .transition()
+                .duration(1200)
+                .attr("d", d => line(team_datas[d]));
+        }    
+
+        // ------------------------- BAR -------------------------------------
+
+        let bar = d3.select("#barSVG");
+        let barChart = bar.append("g")
+            .attr("id", "barID")
+            .attr("transform", translate(25,20));
+        
+        let BXAxis = d3.select("#barID").append("g")
+            .attr("class", "line-axis--x")
+            .attr("transform", translate(0, 430));
+        let BYAxis = d3.select("#barID").append("g")
+            .attr("class", "line-axis--y");
+        let BYAxis2 = d3.select("#barID").append("g")
+            .attr("class", "line-axis--y2");
+            
+        let BXScale = d3.scaleBand().range([0, 420]);
+        let BYScale = d3.scaleLinear().rangeRound([430, 0]);
+        let BYScale2 = d3.scaleLinear().rangeRound([0, 430]);
+            
+        function putBar() {
+            let selected_year = document.getElementById("yearOption").value;
+            putBarData(selected_year); 
+        }
+        
+        function putBarData(selected_year) {
+            if (dataFormat.data == null) {return;}
+    
+            let teams = [];
+    
+            dataFormat.data.forEach(function(d) {
+                if (d.year !== selected_year)
+                    return;
+                d.rankings.forEach(rank => teams.push(rank.team));
+            });
+    
+            let team_datasL = {};
+            let team_datasD = {};
+            let team_datasW = {};
+    
+            teams.forEach(function(d){
+                team_datasL[d] = -1;
+                team_datasD[d] = -1;
+                team_datasW[d] = -1;
+            });
+            
+            let datasL = [];
+            let datasD = [];
+            let datasW = [];
+    
+            dataFormat.data.forEach(function(d) {
+                if (d.year !== selected_year)
+                    return;
+                
+                d.rankings.forEach(function(rank) {
+                            datasL.push(+rank.L);
+                            team_datasL[rank.team] = +rank.L;
+                            datasD.push(+rank.D);
+                            team_datasD[rank.team] = +rank.D;
+                            datasW.push(+rank.W);
+                            team_datasW[rank.team] = +rank.W;
+                });
+        });
+        
+        let game_total = datasL[0]+datasD[0]+datasW[0];
+        
+        BXScale.domain(teams);
+        BYScale.domain([0, game_total]);
+        BYScale2.domain([0, game_total]);
+
+        BXAxis.transition()
+            .duration(1200)
+            .call(d3.axisBottom(BXScale));
+
+        BYAxis.transition()
+            .duration(1200)
+            .call(d3.axisLeft(BYScale));
+        
+        BYAxis2.transition()
+            .attr("transform", translate(420, 0))
+            .transition()
+            .duration(1200)
+            .attr("transform", translate(420, 0)) 
+            .call(d3.axisRight(BYScale2));
+        
+        let barsL = d3.select("#barID")
+            .selectAll("#rectL")
+            .data(teams,  d => d);
+            
+        let barsD = d3.select("#barID")
+            .selectAll("#rectD")
+            .data(teams, d => d);
+        
+        let barsW = d3.select("#barID")
+            .selectAll("#rectW")
+            .data(teams,  d => d);
+
+        barsL.exit().remove();
+        barsD.exit().remove();
+        barsW.exit().remove();
+        
+        barsL.enter()
+            .append("rect")
+            .attr("id", "rectL")
+            .attr("class",  d => d)
+            .attr("x", d => BXScale(d))
+            .attr("y", d =>  0)
+            .attr("height", d => BYScale2(team_datasL[d])) // Lose의 횟수
+            .attr("width", BXScale.bandwidth()-2)
+            .style("fill", d => d3.rgb(color(d)).darker(2))
+            .style("opacity", 0);
+            
+        barsD.enter()
+            .append("rect")
+            .attr("id", "rectD")
+            .attr("class",  d => d)
+            .attr("x", function(d) {return BXScale(d);})
+            .attr("y", function(d) {return BYScale2(team_datasL[d]);})
+            .attr("height", function(d) {return BYScale2(team_datasD[d]);})
+            .attr("width", BXScale.bandwidth()-2)
+            .style("fill", function(d) {return color(d);})
+            .style("opacity", 0);
+
+        barsW.enter()
+            .append("rect")
+            .attr("id", "rectW")
+            .attr("class",  d => d)
+            .attr("x", d => BXScale(d))
+            .attr("y", d => BYScale(team_datasW[d]))
+            .attr("height", d =>  (430 - BYScale(team_datasW[d])))
+            .attr("width", BXScale.bandwidth()-2)
+            .style("fill", d => color(d))
+            .style("opacity", 0);
+        
+        barsL
+            .style("fill", d => (d3.rgb(color(d)).darker(2)))
+            .transition()
+            .duration(1200)
+            .attr("x", d =>  BXScale(d))
+            .attr("y", d =>  0)
+            .attr("height", d => BYScale2(team_datasL[d]))
+            .attr("width", BXScale.bandwidth()-2);
+            
+        barsD
+            .transition()
+            .duration(1200)
+            .attr("x", d => BXScale(d))
+            .attr("y", d => BYScale2(team_datasL[d]))
+            .attr("height", d => BYScale2(team_datasD[d]))
+            .attr("width", BXScale.bandwidth()-2)
+            .style("fill", d => d3.rgb("#808080"));
+        
+        barsW
+            .transition()
+            .duration(1200)
+            .attr("x", d =>  BXScale(d))
+            .attr("y", d =>  BYScale(team_datasW[d]))
+            .attr("height", d => (430 - BYScale(team_datasW[d])))
+            .attr("width", BXScale.bandwidth()-2)
+            .style("fill", d => color(d));
+        
+        barsL
+            .on("mouseenter", function(event, d) {put(d);})
+            .on("mouseleave", function() {put("none");});
+        
+        barsW
+            .on("mouseenter", function(event, d) {put(d);})
+            .on("mouseleave", function() {put("none");});
+
+        d3.select("#barID")
+            .selectAll("#rectL")
+            .data(teams,  d => d)
+            .transition()
+            .delay(1200)
+            .duration(1200)
+            .style("opacity", null);
+            
+        d3.select("#barID")
+            .selectAll("#rectD")
+            .data(teams,  d => d)
+            .transition()
+            .delay(1200)
+            .duration(1200)
+            .style("opacity", null);
+        
+        d3.select("#barID")
+            .selectAll("#rectW")
+            .data(teams,  d => d)
+            .transition()
+            .delay(1200)
+            .duration(1200)
+            .style("opacity", null);
+    }
+        
+</script>
+</body>
